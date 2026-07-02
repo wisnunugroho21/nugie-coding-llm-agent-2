@@ -1,8 +1,10 @@
 __pycache__/
 *.pyc
-data/
-tokenizers/
-checkpoints/
+# Anchor to the repo root so these DON'T also ignore the source package
+# training/data/ (an unanchored `data/` matches any dir named data at any depth).
+/data/
+/tokenizers/
+/checkpoints/
 .DS_Store
 *.bin
 *.msgpack
