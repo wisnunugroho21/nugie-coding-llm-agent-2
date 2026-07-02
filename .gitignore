@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+data/
+tokenizers/
+checkpoints/
+.DS_Store
+*.bin
+*.msgpack
+.hf_cache/

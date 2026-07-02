@@ -1,0 +1,29 @@
+# Stage-2 (annealing) corpus: smaller and higher quality than pretraining.
+# OpenCoder (Sec. 3) anneals on high-quality synthetic + instruction-style code.
+# Here we use Magicoder OSS-Instruct (problem/solution pairs distilled from real
+# code) formatted as plain documents. FIM is disabled — these are coherent,
+# instruction-shaped samples we want the model to see left-to-right.
+
+out_dir: data/anneal
+tokenizer: tokenizers/code_bpe.json   # SAME tokenizer as pretraining
+
+hf:
+  path: ise-uiuc/Magicoder-OSS-Instruct-75K
+  split: train
+  streaming: false
+  template: "{problem}\n\n{solution}"
+  max_documents: 75000
+
+filter:
+  enabled: true
+
+dedup:
+  exact: true
+  minhash: false          # this set is already curated; exact dedup is enough
+
+fim:
+  enabled: false
+
+val_fraction: 0.01
+append_eot: true
+seed: 0

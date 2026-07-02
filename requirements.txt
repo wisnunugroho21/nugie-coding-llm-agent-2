@@ -1,0 +1,21 @@
+# Core deps for the Kimi-Linear (GDN-2) code-LM training pipeline.
+#
+# JAX: install the build that matches your accelerator SEPARATELY (it is intentionally
+# NOT pinned here because the wheel differs per platform):
+#   NVIDIA T4 / any CUDA 12 GPU:   pip install -U "jax[cuda12]"
+#   CPU only (dev / this repo's tests):   pip install -U "jax[cpu]"
+#
+# The T4 is a Turing GPU: it has fp16 tensor cores but NO bf16. This pipeline runs in
+# fp32 by default (safe + the GDN-2 core needs fp32 internally). See README for fp16.
+
+flax>=0.12
+optax>=0.2.4
+orbax-checkpoint>=0.5
+grain>=0.2
+datasets>=2.19
+tokenizers>=0.20
+huggingface_hub>=0.23
+numpy>=1.26
+tqdm>=4.66
+pyyaml>=6.0
+pytest>=8.0

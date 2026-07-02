@@ -1,0 +1,34 @@
+# Stage-1 (general pretraining) corpus.
+# A small, permissively-licensed slice of The Stack — cheap to download and pack on
+# a laptop/T4. Swap `hf.data_dir` for another language dir, or point `hf.path` at a
+# larger source (e.g. codeparrot/github-code-clean with streaming: true) to scale up.
+
+out_dir: data/pretrain
+tokenizer: tokenizers/code_bpe.json
+
+hf:
+  path: bigcode/the-stack-smol
+  data_dir: data/python        # the-stack-smol shards by language under data/<lang>
+  split: train
+  streaming: false
+  text_key: content
+  max_documents: 50000         # cap for a T4-sized run; raise/remove to use more
+
+filter:
+  enabled: true
+
+dedup:
+  exact: true
+  minhash: true
+  minhash_threshold: 0.8
+  minhash_num_perm: 64
+  minhash_ngram: 5
+
+fim:
+  enabled: true
+  rate: 0.5
+  spm_rate: 0.5
+
+val_fraction: 0.005
+append_eot: true
+seed: 0

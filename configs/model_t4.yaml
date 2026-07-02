@@ -1,0 +1,34 @@
+# Kimi-Linear (GDN-2) architecture sized for a single NVIDIA T4 (16 GB).
+# Maps 1:1 onto KimiLinearConfig. `vocab_size` is overwritten at train time from
+# the tokenizer's meta.json, so the value here is only a placeholder.
+#
+# ~12 layers at d_model=512 with a small 8-expert (top-2) MoE and seq_len 512.
+# Scale up d_model / n_layers / moe_n_routed once you move off the T4.
+
+vocab_size: 32000            # placeholder; set from tokenizer at train time
+d_model: 512
+n_layers: 12                 # indices 3,7,11 are MLA full-attention (3:1 hybrid)
+full_attn_period: 4
+
+# --- GDN-2 linear-attention token mixer ---
+gdn_num_heads: 8
+gdn_head_k_dim: 64
+gdn_head_v_dim: 64
+gdn_chunk_size: 64           # seq_len MUST be a multiple of this
+gdn_conv_size: 4
+gdn_expanded_erase: false
+
+# --- MLA full-attention layers (NoPE) ---
+mla_num_q_heads: 8
+mla_num_kv_heads: 2
+mla_head_dim: 64
+max_seq_len: 512             # must be >= train seq_len (sizes the MLA causal mask)
+
+# --- MoE channel mixer (small, to fit the T4) ---
+moe_d_ff: 512
+moe_n_routed: 8
+moe_n_shared: 1
+moe_top_k: 2
+mlp_d_ff: 768
+
+rms_eps: 1.0e-5
