@@ -37,8 +37,14 @@ def _make_fake_corpus(d: Path, vocab_size=64, train_tokens=20000, val_tokens=400
     (d / "val.bin").write_bytes(
         rng.integers(0, vocab_size, val_tokens, dtype=np.uint16).tobytes()
     )
-    meta = {"dtype": "uint16", "vocab_size": vocab_size, "pad_id": 1,
-            "eot_id": 0, "train_tokens": train_tokens, "val_tokens": val_tokens}
+    meta = {
+        "dtype": "uint16",
+        "vocab_size": vocab_size,
+        "pad_id": 1,
+        "eot_id": 0,
+        "train_tokens": train_tokens,
+        "val_tokens": val_tokens,
+    }
     (d / "meta.json").write_text(json.dumps(meta))
     return meta
 
@@ -50,14 +56,29 @@ def test_pipeline_smoke():
 
         seq_len = 64
         mcfg = KimiLinearConfig(
-            vocab_size=meta["vocab_size"], d_model=64, n_layers=4,
-            gdn_num_heads=2, gdn_head_k_dim=32, gdn_head_v_dim=32, gdn_chunk_size=16,
-            mla_num_q_heads=4, mla_num_kv_heads=2, mla_head_dim=32,
-            moe_d_ff=64, moe_n_routed=4, moe_top_k=2, max_seq_len=seq_len,
+            vocab_size=meta["vocab_size"],
+            d_model=64,
+            n_layers=4,
+            gdn_num_heads=2,
+            gdn_head_k_dim=32,
+            gdn_head_v_dim=32,
+            gdn_chunk_size=16,
+            mla_num_q_heads=4,
+            mla_num_kv_heads=2,
+            mla_head_dim=32,
+            moe_d_ff=64,
+            moe_n_routed=4,
+            moe_top_k=2,
+            max_seq_len=seq_len,
         )
         tcfg = TrainConfig(
-            data_dir=str(d), seq_len=seq_len, batch_size=2, grad_accum=1,
-            max_steps=3, warmup_steps=1, eval_batches=2,
+            data_dir=str(d),
+            seq_len=seq_len,
+            batch_size=2,
+            grad_accum=1,
+            max_steps=3,
+            warmup_steps=1,
+            eval_batches=2,
         )
 
         model = build_model(mcfg, seed=0)
@@ -66,8 +87,13 @@ def test_pipeline_smoke():
         assert param_count(model) > 0
 
         loader = make_loader(
-            str(d), "train", seq_len, tcfg.batch_size,
-            num_epochs=1, shuffle=True, worker_count=0,
+            str(d),
+            "train",
+            seq_len,
+            tcfg.batch_size,
+            num_epochs=1,
+            shuffle=True,
+            worker_count=0,
         )
         losses = []
         for i, batch in enumerate(loader):
@@ -81,12 +107,14 @@ def test_pipeline_smoke():
 
         # checkpoint round-trip: reload into a fresh model and compare logits.
         ids = jnp.zeros((1, seq_len), jnp.int32)
-        logits_before, _ = model(ids, return_aux=True)
+        logits_before, _ = model(ids)
         save_model(d / "m.msgpack", model)
         model2 = build_model(mcfg, seed=1)  # different init on purpose
         load_model(d / "m.msgpack", model2)
-        logits_after, _ = model2(ids, return_aux=True)
-        assert np.allclose(logits_before, logits_after, atol=1e-5), "ckpt round-trip mismatch"
+        logits_after, _ = model2(ids)
+        assert np.allclose(logits_before, logits_after, atol=1e-5), (
+            "ckpt round-trip mismatch"
+        )
 
         # streaming generation works and stays in-vocab.
         gen = model.generate(ids[:, :4], max_new_tokens=8)

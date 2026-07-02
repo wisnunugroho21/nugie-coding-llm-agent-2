@@ -41,7 +41,9 @@ def make_schedule(cfg: TrainConfig) -> optax.Schedule:
     )
 
 
-def make_optimizer(model: KimiLinear, cfg: TrainConfig) -> tuple[nnx.Optimizer, optax.Schedule]:
+def make_optimizer(
+    model: KimiLinear, cfg: TrainConfig
+) -> tuple[nnx.Optimizer, optax.Schedule]:
     schedule = make_schedule(cfg)
     inner = optax.chain(
         optax.clip_by_global_norm(cfg.grad_clip),
@@ -52,7 +54,11 @@ def make_optimizer(model: KimiLinear, cfg: TrainConfig) -> tuple[nnx.Optimizer, 
             weight_decay=cfg.weight_decay,
         ),
     )
-    tx = optax.MultiSteps(inner, every_k_schedule=cfg.grad_accum) if cfg.grad_accum > 1 else inner
+    tx = (
+        optax.MultiSteps(inner, every_k_schedule=cfg.grad_accum)
+        if cfg.grad_accum > 1
+        else inner
+    )
     optimizer = nnx.Optimizer(model, tx, wrt=nnx.Param)
     return optimizer, schedule
 
@@ -61,7 +67,7 @@ def make_optimizer(model: KimiLinear, cfg: TrainConfig) -> tuple[nnx.Optimizer, 
 #  Loss + steps
 # --------------------------------------------------------------------------- #
 def _loss_fn(model: KimiLinear, batch: dict, pad_id: int):
-    logits, aux = model(batch["input_ids"], return_aux=True)  # [B,L,V]
+    logits, aux = model(batch["input_ids"])  # [B,L,V]
     labels = batch["labels"]
     ce = optax.softmax_cross_entropy_with_integer_labels(logits, labels)  # [B,L]
     mask = (labels != pad_id).astype(ce.dtype)
@@ -76,7 +82,9 @@ def make_train_step(pad_id: int, bias_lr: float):
 
     @nnx.jit
     def train_step(model: KimiLinear, optimizer: nnx.Optimizer, batch: dict):
-        (loss, m), grads = nnx.value_and_grad(_loss_fn, has_aux=True)(model, batch, pad_id)
+        (loss, m), grads = nnx.value_and_grad(_loss_fn, has_aux=True)(
+            model, batch, pad_id
+        )
         optimizer.update(model, grads)
         # Aux-loss-free load balancing: nudge each layer's router bias (no gradient).
         group_sizes = m["group_sizes"]  # [n_layers, E]
@@ -93,7 +101,7 @@ def make_train_step(pad_id: int, bias_lr: float):
 def make_eval_step(pad_id: int):
     @nnx.jit
     def eval_step(model: KimiLinear, batch: dict):
-        logits, _ = model(batch["input_ids"], return_aux=True)
+        logits, _ = model(batch["input_ids"])
         labels = batch["labels"]
         ce = optax.softmax_cross_entropy_with_integer_labels(logits, labels)
         mask = (labels != pad_id).astype(ce.dtype)
