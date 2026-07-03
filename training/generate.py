@@ -34,6 +34,14 @@ from training.trainer import build_model, load_model
 
 sys.argv = _saved_argv
 
+# grain defines its own absl flags and reads them when it starts data-loader
+# workers. Since we launch via argparse (not absl.app.run), those flags are
+# never parsed; mark them parsed so their defaults are usable.
+from absl import flags as _absl_flags
+
+if not _absl_flags.FLAGS.is_parsed():
+    _absl_flags.FLAGS.mark_as_parsed()
+
 
 def _sample_logits(logits: np.ndarray, temperature: float, top_k: int, top_p: float,
                    rng: np.random.Generator) -> int:

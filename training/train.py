@@ -44,6 +44,15 @@ from training.trainer import (
 
 sys.argv = _saved_argv
 
+# grain defines its own absl flags and reads them when it starts data-loader
+# workers. Since we launch via argparse (not absl.app.run), those flags are
+# never parsed; mark them parsed so their defaults are usable. Runs at import
+# time so grain's spawned worker processes inherit the parsed state too.
+from absl import flags as _absl_flags
+
+if not _absl_flags.FLAGS.is_parsed():
+    _absl_flags.FLAGS.mark_as_parsed()
+
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Train the Kimi-Linear GDN-2 code LM.")
