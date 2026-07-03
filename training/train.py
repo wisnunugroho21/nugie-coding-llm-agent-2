@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import sys
 
+# Abseil-based deps (jax/grain/orbax) parse the whole process command line via
+# absl.flags on import and abort on our argparse flags ("Unknown command line
+# flag 'config'"). Hide our flags from them, then restore for our own argparse.
 _saved_argv = sys.argv[:]
-sys.argv = sys.argv[:1]  # hide our CLI flags from abseil-based deps (jax/grain/etc.)
+sys.argv = sys.argv[:1]
 
 import argparse
 import dataclasses
@@ -39,7 +42,7 @@ from training.trainer import (
     save_checkpoint,
 )
 
-sys.argv = _saved_argv  # restore for our own argparse
+sys.argv = _saved_argv
 
 
 def main() -> None:

@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+import sys
+
+# Abseil-based deps (jax/grain/orbax) parse the whole process command line via
+# absl.flags on import and abort on our argparse flags ("Unknown command line
+# flag 'config'"). Hide our flags from them, then restore for our own argparse.
+_saved_argv = sys.argv[:]
+sys.argv = sys.argv[:1]
+
 import argparse
 import dataclasses
 import math
@@ -11,6 +19,8 @@ import jax.numpy as jnp
 from training.config import Config
 from training.data.loader import load_meta, make_loader
 from training.trainer import build_model, load_model, make_eval_step
+
+sys.argv = _saved_argv
 
 
 def run_eval(model, data_dir, seq_len, batch_size, pad_id, max_batches=50):

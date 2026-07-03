@@ -13,6 +13,14 @@ Sampling controls: --temperature, --top-k, --top-p (nucleus). --temperature 0 = 
 
 from __future__ import annotations
 
+import sys
+
+# Abseil-based deps (jax/grain/orbax) parse the whole process command line via
+# absl.flags on import and abort on our argparse flags ("Unknown command line
+# flag 'config'"). Hide our flags from them, then restore for our own argparse.
+_saved_argv = sys.argv[:]
+sys.argv = sys.argv[:1]
+
 import argparse
 import dataclasses
 
@@ -23,6 +31,8 @@ from training.config import Config
 from training.data.loader import load_meta
 from training.data.tokenizer import CodeTokenizer
 from training.trainer import build_model, load_model
+
+sys.argv = _saved_argv
 
 
 def _sample_logits(logits: np.ndarray, temperature: float, top_k: int, top_p: float,
