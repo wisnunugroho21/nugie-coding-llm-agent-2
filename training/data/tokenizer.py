@@ -12,19 +12,20 @@ can rely on `CodeTokenizer.eot_id`, `.fim_prefix_id`, etc.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Iterable
 
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 
 SPECIAL_TOKENS = [
-    "<|endoftext|>",   # 0: document / sequence boundary
-    "<|pad|>",         # 1: padding (unused when packing, kept for batched decode)
+    "<|endoftext|>",  # 0: document / sequence boundary
+    "<|pad|>",  # 1: padding (unused when packing, kept for batched decode)
     "<|fim_prefix|>",  # 2: FIM prefix sentinel
     "<|fim_middle|>",  # 3: FIM middle sentinel
     "<|fim_suffix|>",  # 4: FIM suffix sentinel
-    "<|repo_name|>",   # 5: repo-context sentinel (repo-level packing)
-    "<|file_sep|>",    # 6: file separator (repo-level packing)
+    "<|repo_name|>",  # 5: repo-context sentinel (repo-level packing)
+    "<|file_sep|>",  # 6: file separator (repo-level packing)
 ]
 
 
