@@ -14,6 +14,11 @@ at the final pretrain model checkpoint.
 
 from __future__ import annotations
 
+import sys
+
+_saved_argv = sys.argv[:]
+sys.argv = sys.argv[:1]  # hide our CLI flags from abseil-based deps (jax/grain/etc.)
+
 import argparse
 import dataclasses
 import time
@@ -34,12 +39,16 @@ from training.trainer import (
     save_checkpoint,
 )
 
+sys.argv = _saved_argv  # restore for our own argparse
+
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Train the Kimi-Linear GDN-2 code LM.")
     ap.add_argument("--config", required=True)
     ap.add_argument("--resume", default=None, help="checkpoint dir to resume from")
-    ap.add_argument("--init-from", default=None, help="model_*.msgpack to warm-start from")
+    ap.add_argument(
+        "--init-from", default=None, help="model_*.msgpack to warm-start from"
+    )
     args = ap.parse_args()
 
     cfg = Config.load(args.config)
@@ -53,8 +62,10 @@ def main() -> None:
     meta = load_meta(tcfg.data_dir)
     mcfg = dataclasses.replace(cfg.model, vocab_size=meta["vocab_size"])
     pad_id = meta["pad_id"]
-    print(f"[train] phase={tcfg.phase} data={tcfg.data_dir} "
-          f"vocab={mcfg.vocab_size} seq_len={tcfg.seq_len}")
+    print(
+        f"[train] phase={tcfg.phase} data={tcfg.data_dir} "
+        f"vocab={mcfg.vocab_size} seq_len={tcfg.seq_len}"
+    )
 
     model = build_model(mcfg, tcfg.seed)
     optimizer, _ = make_optimizer(model, tcfg)
@@ -70,8 +81,14 @@ def main() -> None:
         print(f"[train] resumed from {tcfg.resume} at step {start_step}")
 
     train_loader = make_loader(
-        tcfg.data_dir, "train", tcfg.seq_len, tcfg.batch_size,
-        seed=tcfg.seed, shuffle=True, num_epochs=None, worker_count=2,
+        tcfg.data_dir,
+        "train",
+        tcfg.seq_len,
+        tcfg.batch_size,
+        seed=tcfg.seed,
+        shuffle=True,
+        num_epochs=None,
+        worker_count=2,
     )
     train_step = make_train_step(pad_id, tcfg.router_bias_lr)
 
@@ -82,12 +99,16 @@ def main() -> None:
     n_since_log = 0
     t0 = time.time()
 
-    print(f"[train] starting loop: max_steps={tcfg.max_steps} "
-          f"tokens/opt-step={tokens_per_opt:,}")
+    print(
+        f"[train] starting loop: max_steps={tcfg.max_steps} "
+        f"tokens/opt-step={tokens_per_opt:,}"
+    )
     for batch in train_loader:
         batch = {k: jnp.asarray(v) for k, v in batch.items()}
         loss, ce, aux = train_step(model, optimizer, batch)
-        run_loss += float(loss); run_ce += float(ce); run_aux += float(aux)
+        run_loss += float(loss)
+        run_ce += float(ce)
+        run_aux += float(aux)
         n_since_log += 1
         micro += 1
 
@@ -110,8 +131,12 @@ def main() -> None:
 
         if step % tcfg.eval_every == 0:
             res = run_eval(
-                model, tcfg.data_dir, tcfg.seq_len, tcfg.batch_size,
-                pad_id, tcfg.eval_batches,
+                model,
+                tcfg.data_dir,
+                tcfg.seq_len,
+                tcfg.batch_size,
+                pad_id,
+                tcfg.eval_batches,
             )
             print(f"[eval] step {step} | {res}")
             t0 = time.time()  # don't count eval time in throughput
