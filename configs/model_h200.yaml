@@ -1,0 +1,40 @@
+# Kimi-Linear (GDN-2) architecture sized for a single NVIDIA H200 (141 GB).
+# Maps 1:1 onto KimiLinearConfig. `vocab_size` is overwritten at train time from
+# the tokenizer's meta.json, so the value here is only a placeholder.
+#
+# ~1.9B total / ~600M active params: d_model 1024, 24 layers, 32-expert (top-8) MoE,
+# seq_len up to 4096. Scaled from configs/model_t4.yaml toward the paper's 1.3B
+# reference (d_model 2048 / 27 layers / 256 experts). Total params scale mostly with
+# `moe_n_routed` and `d_model` — check the "[train] parameters:" line at startup and
+# dial these to fit your memory/time budget.
+
+vocab_size: 32000            # placeholder; set from tokenizer at train time (use 48k-64k for code)
+d_model: 1024
+n_layers: 24                 # indices 3,7,11,15,19,23 are MLA full-attention (3:1 hybrid)
+full_attn_period: 4
+
+# --- GDN-2 linear-attention token mixer ---
+gdn_num_heads: 16
+gdn_head_k_dim: 128
+gdn_head_v_dim: 128
+gdn_chunk_size: 64           # seq_len MUST be a multiple of this
+gdn_conv_size: 4
+gdn_expanded_erase: false
+
+# --- MLA full-attention layers (NoPE) ---
+mla_num_q_heads: 16
+mla_num_kv_heads: 4          # mla_num_q_heads must be a multiple of this
+mla_head_dim: 128
+max_seq_len: 4096            # must be >= train seq_len (sizes the MLA causal mask)
+
+# --- MoE channel mixer ---
+moe_d_ff: 1024               # per-expert hidden width
+moe_n_routed: 32             # total routed experts (paper: 256); memory scales with this
+moe_n_shared: 1              # always-on shared experts
+moe_top_k: 8                 # experts activated per token (paper: 8)
+
+rms_eps: 1.0e-5
+
+# --- Mixed precision (see trainer.py / gated_deltanet_2/core.py) ---
+# Master weights stay fp32; matmuls run in this dtype. Set to float32 to disable.
+compute_dtype: bfloat16
