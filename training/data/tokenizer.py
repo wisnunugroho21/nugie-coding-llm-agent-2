@@ -36,8 +36,6 @@ def train_tokenizer(
     min_frequency: int = 2,
 ) -> Tokenizer:
     """Train a byte-level BPE tokenizer and save it to `out_path` (a .json file)."""
-    os.environ["HF_TOKEN"] = "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"
-
     tok = Tokenizer(models.BPE())
     tok.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
     tok.decoder = decoders.ByteLevel()
