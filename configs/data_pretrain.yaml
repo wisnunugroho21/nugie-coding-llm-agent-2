@@ -1,18 +1,20 @@
-# Stage-1 (general pretraining) corpus.
-# A small, permissively-licensed slice of The Stack — cheap to download and pack on
-# a laptop/T4. Swap `hf.data_dir` for another language dir, or point `hf.path` at a
-# larger source (e.g. codeparrot/github-code-clean with streaming: true) to scale up.
+# Stage-1 (general pretraining) corpus — H200 scale.
+# the-stack-dedup has the same `data/<lang>` layout and `content` field as
+# the-stack-smol, so only the source + scale change here. It is a GATED dataset:
+# accept the terms on huggingface.co and run `huggingface-cli login` (or set
+# HF_TOKEN) before `prepare`. Ungated alternative: path: codeparrot/github-code-clean
+# (drop `data_dir`, keep text_key: content).
 
 out_dir: data/pretrain
 tokenizer: tokenizers/code_bpe.json
 
 hf:
-  path: bigcode/the-stack-smol
-  data_dir: data/python        # the-stack-smol shards by language under data/<lang>
+  path: bigcode/the-stack-dedup
+  data_dir: data/python        # shards by language under data/<lang>
   split: train
-  streaming: false
+  streaming: true              # stream — the full shard is far too big to download
   text_key: content
-  max_documents: 50000         # cap for a T4-sized run; raise/remove to use more
+  max_documents: 2000000       # ~2M docs feeds a ~20B-token run; raise/remove for more
 
 filter:
   enabled: true

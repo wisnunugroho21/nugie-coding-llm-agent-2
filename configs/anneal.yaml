@@ -1,24 +1,25 @@
 # Stage-2: annealing on the high-quality corpus, LR decayed to zero.
 # Warm-start from the final pretrain checkpoint (set --init-from on the CLI, or
 # edit train.init_from below to the produced model_*.msgpack path).
-model_config: configs/model_t4.yaml
+# Sized for a single NVIDIA H200 (141 GB) — same model as pretraining.
+model_config: configs/model_h200.yaml
 
 data:
   bin_dir: data/anneal       # produced by: python -m training.data.prepare --config configs/data_anneal.yaml
-  seq_len: 512
+  seq_len: 4096
 
 train:
   phase: anneal
   out_dir: checkpoints/anneal
   seed: 0
 
-  batch_size: 8
-  grad_accum: 4
-  max_steps: 3000            # short phase
+  batch_size: 16
+  grad_accum: 8
+  max_steps: 4000            # short phase
 
-  lr: 5.0e-5                 # lower peak than pretraining
+  lr: 6.0e-5                 # lower peak than pretraining
   min_lr: 0.0                # decay all the way to zero (the "anneal")
-  warmup_steps: 100
+  warmup_steps: 200
   weight_decay: 0.1
   beta1: 0.9
   beta2: 0.95
@@ -26,9 +27,9 @@ train:
 
   router_bias_lr: 1.0e-3
 
-  log_every: 20
-  eval_every: 250
-  eval_batches: 50
-  ckpt_every: 500
+  log_every: 50
+  eval_every: 500
+  eval_batches: 100
+  ckpt_every: 1000
 
-  # init_from: checkpoints/pretrain/model_20000.msgpack   # or pass --init-from on CLI
+  # init_from: checkpoints/pretrain/model_38000.msgpack   # or pass --init-from on CLI
