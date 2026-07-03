@@ -136,7 +136,13 @@ def save_model(path: str | Path, model: KimiLinear) -> None:
 
 def load_model(path: str | Path, model: KimiLinear) -> None:
     """In-place restore of `model`'s parameters from a saved model state."""
-    _load_state(Path(path), model)
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"model checkpoint not found: {str(path)!r} "
+            "(expected a model_*.msgpack file; check the --model argument)"
+        )
+    _load_state(path, model)
 
 
 def save_checkpoint(
