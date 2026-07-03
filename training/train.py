@@ -26,12 +26,6 @@ import argparse
 import dataclasses
 import time
 
-import sys
-from absl import app
-from absl import flags
-
-FLAGS = flags.FLAGS
-
 import jax.numpy as jnp
 
 from training.config import Config
@@ -162,4 +156,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    app.run(main)
+    main()
