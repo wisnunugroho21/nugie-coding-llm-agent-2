@@ -106,6 +106,18 @@ class KimiLinearConfig:
 
     rms_eps: float = 1e-5
 
+    # --- Mixed precision ---
+    # Matmul (compute) dtype for the projection Linears + MoE expert GEMMs. Master
+    # weights are ALWAYS stored fp32 (param_dtype), and the numerically sensitive
+    # parts stay fp32 regardless: the GDN-2 chunkwise core, RMSNorm, the router
+    # softmax, and the loss. Set "bfloat16" on an H200; "float32" disables mixed
+    # precision. Read from YAML as a string; use `.cdtype` for the resolved dtype.
+    compute_dtype: str = "float32"
+
+    @property
+    def cdtype(self) -> jnp.dtype:
+        return jnp.dtype(self.compute_dtype)
+
 
 # --------------------------------------------------------------------------- #
 #  One decoder block: pre-norm token mixer + pre-norm channel mixer, both residual.
@@ -131,6 +143,7 @@ class DecoderLayer(nnx.Module):
                 num_kv_heads=cfg.mla_num_kv_heads,
                 head_dim=cfg.mla_head_dim,
                 seq_length=cfg.max_seq_len,
+                compute_dtype=cfg.cdtype,
                 rngs=rngs,
             )
         else:
@@ -144,6 +157,7 @@ class DecoderLayer(nnx.Module):
                 chunk_size=cfg.gdn_chunk_size,
                 conv_size=cfg.gdn_conv_size,
                 expanded_erase=cfg.gdn_expanded_erase,
+                compute_dtype=cfg.cdtype,
                 rngs=rngs,
             )
 
@@ -157,6 +171,7 @@ class DecoderLayer(nnx.Module):
             n_routed=cfg.moe_n_routed,
             n_shared=cfg.moe_n_shared,
             top_k=cfg.moe_top_k,
+            compute_dtype=cfg.cdtype,
             rngs=rngs,
         )
 
@@ -230,7 +245,8 @@ class KimiLinear(nnx.Module):
         # to tie, drop lm_head and use `x @ self.embed.embedding.value.T` instead).
         self.norm_f = RMSNorm(cfg.d_model, eps=cfg.rms_eps, rngs=rngs)
         self.lm_head = nnx.Linear(
-            cfg.d_model, cfg.vocab_size, use_bias=False, kernel_init=_XAVIER, rngs=rngs
+            cfg.d_model, cfg.vocab_size, use_bias=False, kernel_init=_XAVIER,
+            dtype=cfg.cdtype, param_dtype=jnp.float32, rngs=rngs
         )
 
     def __call__(self, input_ids: jax.Array) -> tuple[jax.Array, dict[str, ArrayLike]]:
@@ -255,7 +271,9 @@ class KimiLinear(nnx.Module):
             group_sizes.append(aux["group_sizes"])
 
         x = self.norm_f(x)
-        logits = self.lm_head(x)  # [B, L, vocab]
+        # Upcast logits to fp32 for a numerically stable softmax/cross-entropy under
+        # bf16 compute (the lm_head matmul itself still runs in cfg.compute_dtype).
+        logits = self.lm_head(x).astype(jnp.float32)  # [B, L, vocab]
 
         return logits, {"aux_loss": aux_loss, "group_sizes": jnp.stack(group_sizes)}
 
@@ -283,7 +301,7 @@ class KimiLinear(nnx.Module):
             new_caches.append(new_cache)
 
         x = self.norm_f(x)
-        return self.lm_head(x), new_caches
+        return self.lm_head(x).astype(jnp.float32), new_caches
 
     def generate(
         self, prompt_ids: jax.Array, max_new_tokens: int, max_len: int | None = None

@@ -50,7 +50,11 @@ class GroupedQueryLatentAttention(nnx.Module):
         head_dim: int,
         seq_length: int,
         rngs: nnx.Rngs,
+        compute_dtype: jnp.dtype = jnp.float32,
     ):
+        # Matmul dtype for the projections (bf16 on H200); the QK^T / softmax / AV
+        # core is upcast to fp32 below regardless, for a stable attention distribution.
+        self.compute_dtype = compute_dtype
         # GQA constraint: every KV (latent) head must serve a whole number of
         # query heads, so that `repeat` below tiles the latent evenly.
         if num_q_heads % num_kv_heads != 0:
@@ -70,17 +74,20 @@ class GroupedQueryLatentAttention(nnx.Module):
 
         # W_Q . W_UK absorbed: x -> queries already living in the latent K space.
         self.w_q_uk = nnx.Linear(
-            embed_dim, d_q, use_bias=False, kernel_init=_XAVIER, rngs=rngs
+            embed_dim, d_q, use_bias=False, kernel_init=_XAVIER,
+            dtype=compute_dtype, param_dtype=jnp.float32, rngs=rngs
         )
 
         # W_DKV: x -> low-rank KV latent c_kv (one latent per KV head).
         self.w_dkv = nnx.Linear(
-            embed_dim, d_kv, use_bias=False, kernel_init=_XAVIER, rngs=rngs
+            embed_dim, d_kv, use_bias=False, kernel_init=_XAVIER,
+            dtype=compute_dtype, param_dtype=jnp.float32, rngs=rngs
         )
 
         # W_UV . W_O absorbed: value-latent -> up-projected, output-projected.
         self.w_uv_o = nnx.Linear(
-            d_q, embed_dim, use_bias=False, kernel_init=_XAVIER, rngs=rngs
+            d_q, embed_dim, use_bias=False, kernel_init=_XAVIER,
+            dtype=compute_dtype, param_dtype=jnp.float32, rngs=rngs
         )
 
         # Lower-triangular causal mask (True = keep), built once at the
@@ -132,8 +139,9 @@ class GroupedQueryLatentAttention(nnx.Module):
         # 'd' is shared (contracted); 'k' indexes key/latent positions (kept).
         qk_t = jnp.einsum("bhqd, bhkd -> bhqk", q_heads, l_kv_repeated)  # (B, Hq, T, T)
 
-        # Scale by sqrt of the latent per-head dim.
-        scaled_logits = qk_t / jnp.sqrt(self.head_dim)
+        # Scale by sqrt of the latent per-head dim. Upcast to fp32 so the masking,
+        # softmax max/exp/sum are stable even when the projections ran in bf16.
+        scaled_logits = qk_t.astype(jnp.float32) / jnp.sqrt(self.head_dim)
 
         # Apply causal mask: future positions -> -inf so they vanish under softmax.
         # Indexing the nnx.Variable yields the raw bool array. Safe to use -inf
@@ -144,8 +152,11 @@ class GroupedQueryLatentAttention(nnx.Module):
             -jnp.inf,
         )
 
-        # Softmax over the key axis -> per-query attention distribution.
-        a = jax.nn.softmax(scaled_logits, axis=-1)  # (B, Hq, T, T)
+        # Softmax over the key axis -> per-query attention distribution (fp32), then
+        # back to the compute dtype for the (bf16) weighted-sum matmul below.
+        a = jax.nn.softmax(scaled_logits, axis=-1).astype(
+            l_kv_repeated.dtype
+        )  # (B, Hq, T, T)
 
         # --- Weighted sum of value-latents ---
         # 'k' is shared between the weights and the value positions, so it is the

@@ -62,6 +62,7 @@ class GroupedGemmMoE(nnx.Module):
         routed_scale: float = 1.0,
         bias_balancing: bool = True,
         aux_alpha: float = 1e-3,
+        compute_dtype: jnp.dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
         self.d_model = d_model
@@ -72,6 +73,10 @@ class GroupedGemmMoE(nnx.Module):
         self.routed_scale = routed_scale
         self.bias_balancing = bias_balancing
         self.aux_alpha = aux_alpha
+        # Matmul dtype for the expert grouped GEMMs + shared expert (bf16 on H200).
+        # Weights are stored fp32; the router, combine (scatter-add), and aux loss
+        # stay fp32 below for stable routing/load-balancing.
+        self.compute_dtype = compute_dtype
 
         self.router = nnx.Linear(
             d_model, n_routed, use_bias=False, kernel_init=_XAVIER, rngs=rngs
@@ -131,9 +136,13 @@ class GroupedGemmMoE(nnx.Module):
         return top_idx, gate, scores
 
     def _shared(self, x_flat: jax.Array) -> jax.Array:
-        """Shared expert(s) as a single wider SwiGLU (always applied to every token)."""
-        a = jax.nn.silu(x_flat @ self.ws_gate) * (x_flat @ self.ws_up)
-        return a @ self.ws_down
+        """Shared expert(s) as a single wider SwiGLU (always applied to every token).
+        Runs the matmuls in compute_dtype (bf16 on H200); the caller upcasts the
+        result to fp32 for the residual combine."""
+        cd = self.compute_dtype
+        xf = x_flat.astype(cd)
+        a = jax.nn.silu(xf @ self.ws_gate.astype(cd)) * (xf @ self.ws_up.astype(cd))
+        return a @ self.ws_down.astype(cd)
 
     # ----------------------------------------------------------------------- #
     def __call__(self, x: jax.Array) -> tuple[jax.Array, dict[str, jax.Array]]:
@@ -141,7 +150,7 @@ class GroupedGemmMoE(nnx.Module):
         T = B * L
         k = self.top_k
         xf = x.reshape(T, d)
-        cdtype = x.dtype
+        cdtype = self.compute_dtype  # force bf16 GEMMs even though the residual is fp32
 
         top_idx, gate, scores = self._route(xf)
 
