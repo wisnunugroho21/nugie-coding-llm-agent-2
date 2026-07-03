@@ -8,6 +8,8 @@ from flax import nnx
 # 2^{-5}), replacing Flax NNX's default Linear kernel init. Biases stay at zero.
 _XAVIER = nnx.initializers.variance_scaling(2**-5, "fan_avg", "uniform")
 
+F32 = jnp.float32
+
 
 class MLACache(NamedTuple):
     """Streaming KV cache for the MLA layer. Thanks to MLA we cache only the small
@@ -50,7 +52,7 @@ class GroupedQueryLatentAttention(nnx.Module):
         head_dim: int,
         seq_length: int,
         rngs: nnx.Rngs,
-        compute_dtype: jnp.dtype = jnp.float32,
+        compute_dtype: jnp.dtype = F32,
     ):
         # Matmul dtype for the projections (bf16 on H200); the QK^T / softmax / AV
         # core is upcast to fp32 below regardless, for a stable attention distribution.
@@ -74,20 +76,35 @@ class GroupedQueryLatentAttention(nnx.Module):
 
         # W_Q . W_UK absorbed: x -> queries already living in the latent K space.
         self.w_q_uk = nnx.Linear(
-            embed_dim, d_q, use_bias=False, kernel_init=_XAVIER,
-            dtype=compute_dtype, param_dtype=jnp.float32, rngs=rngs
+            embed_dim,
+            d_q,
+            use_bias=False,
+            kernel_init=_XAVIER,
+            dtype=compute_dtype,
+            param_dtype=F32,
+            rngs=rngs,
         )
 
         # W_DKV: x -> low-rank KV latent c_kv (one latent per KV head).
         self.w_dkv = nnx.Linear(
-            embed_dim, d_kv, use_bias=False, kernel_init=_XAVIER,
-            dtype=compute_dtype, param_dtype=jnp.float32, rngs=rngs
+            embed_dim,
+            d_kv,
+            use_bias=False,
+            kernel_init=_XAVIER,
+            dtype=compute_dtype,
+            param_dtype=F32,
+            rngs=rngs,
         )
 
         # W_UV . W_O absorbed: value-latent -> up-projected, output-projected.
         self.w_uv_o = nnx.Linear(
-            d_q, embed_dim, use_bias=False, kernel_init=_XAVIER,
-            dtype=compute_dtype, param_dtype=jnp.float32, rngs=rngs
+            d_q,
+            embed_dim,
+            use_bias=False,
+            kernel_init=_XAVIER,
+            dtype=compute_dtype,
+            param_dtype=F32,
+            rngs=rngs,
         )
 
         # Lower-triangular causal mask (True = keep), built once at the
@@ -141,7 +158,7 @@ class GroupedQueryLatentAttention(nnx.Module):
 
         # Scale by sqrt of the latent per-head dim. Upcast to fp32 so the masking,
         # softmax max/exp/sum are stable even when the projections ran in bf16.
-        scaled_logits = qk_t.astype(jnp.float32) / jnp.sqrt(self.head_dim)
+        scaled_logits = qk_t.astype(F32) / jnp.sqrt(self.head_dim)
 
         # Apply causal mask: future positions -> -inf so they vanish under softmax.
         # Indexing the nnx.Variable yields the raw bool array. Safe to use -inf
@@ -183,9 +200,9 @@ class GroupedQueryLatentAttention(nnx.Module):
     #  new positions are written into it.  Use it for prefill (L = prompt length)
     #  and per-token decode (L = 1) alike.
     # ----------------------------------------------------------------------- #
-    def init_cache(self, batch_size: int, max_len: int, dtype=jnp.float32) -> MLACache:
+    def init_cache(self, batch_size: int, max_len: int, dtype=F32) -> MLACache:
         """Initialize the streaming KV cache for a given batch size and max length.
-        The cache is a preallocated buffer of shape [B, max_len, Hkv*Dh] and a position counter. 
+        The cache is a preallocated buffer of shape [B, max_len, Hkv*Dh] and a position counter.
         The buffer is filled with zeros initially."""
         d_kv = self.num_kv_heads * self.head_dim
         return MLACache(
