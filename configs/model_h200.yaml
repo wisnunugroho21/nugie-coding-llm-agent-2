@@ -25,7 +25,7 @@ gdn_expanded_erase: false
 mla_num_q_heads: 16
 mla_num_kv_heads: 4          # mla_num_q_heads must be a multiple of this
 mla_head_dim: 128
-max_seq_len: 4096            # must be >= train seq_len (sizes the MLA causal mask)
+max_seq_len: 4096            # must be >= train seq_len (default MLA cache size)
 
 # --- MoE channel mixer ---
 moe_d_ff: 1024               # per-expert hidden width

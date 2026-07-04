@@ -89,6 +89,10 @@ def main() -> None:
         load_model(tcfg.init_from, model)
         print(f"[train] warm-started from {tcfg.init_from}")
     if tcfg.resume:
+        # Restores params + optimizer state (incl. the LR-schedule step count).
+        # NOTE: the data loader below is NOT fast-forwarded — a resumed run re-visits
+        # the shuffled stream from the start. Acceptable at this scale; for exact
+        # data resumption you would checkpoint the Grain iterator state as well.
         start_step = restore_checkpoint(tcfg.resume, model, optimizer)
         print(f"[train] resumed from {tcfg.resume} at step {start_step}")
 

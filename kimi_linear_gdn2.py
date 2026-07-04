@@ -96,7 +96,10 @@ class KimiLinearConfig:
     mla_num_q_heads: int = 8  # query heads
     mla_num_kv_heads: int = 2  # KV/latent heads (GQA); q_heads must be a multiple
     mla_head_dim: int = 64  # per-head latent (rank) width
-    max_seq_len: int = 512  # builds the causal mask; cap on trainable length
+    # Declared context cap: checked against the training seq_len and used as the
+    # default size of the preallocated MLA latent cache in init_cache/generate.
+    # (The MLA causal mask itself is built on the fly from the actual length.)
+    max_seq_len: int = 512
 
     # --- Channel mixer (FFN) ---
     moe_d_ff: int = 512  # per-expert hidden width (paper: 1408 at 1.3B)
@@ -142,7 +145,6 @@ class DecoderLayer(nnx.Module):
                 num_q_heads=cfg.mla_num_q_heads,
                 num_kv_heads=cfg.mla_num_kv_heads,
                 head_dim=cfg.mla_head_dim,
-                seq_length=cfg.max_seq_len,
                 compute_dtype=cfg.cdtype,
                 rngs=rngs,
             )

@@ -86,14 +86,15 @@ def generate(
     ids = jnp.asarray([prompt_ids], jnp.int32)
     logits, caches = model.step(ids, caches)  # prefill
     out: list[int] = []
-    for _ in range(max_new_tokens):
+    for i in range(max_new_tokens):
         nxt = _sample_logits(
             np.asarray(logits[0, -1]), temperature, top_k, top_p, rng
         )
         if stop_at_eot and nxt == tok.eot_id:
             break
         out.append(nxt)
-        logits, caches = model.step(jnp.asarray([[nxt]], jnp.int32), caches)
+        if i + 1 < max_new_tokens:  # skip the forward pass after the last token
+            logits, caches = model.step(jnp.asarray([[nxt]], jnp.int32), caches)
     return out
 
 

@@ -1,3 +1,23 @@
+"""NoPE Multi-head Latent Attention (MLA) — the FULL-attention token mixer.
+
+In the Kimi Linear hybrid (Sec. 3 of the paper), 1 of every 4 layers is ordinary
+softmax attention; this module is that layer, in Kimi Linear's exact flavor:
+
+  * MLA (DeepSeek-V2 lineage): keys/values live in a small shared low-rank LATENT,
+    so the decode-time cache stores one latent vector per position instead of full
+    K and V — the whole point of MLA is that tiny KV cache.
+  * NoPE — NO positional encoding of any kind. The GDN-2 linear layers already
+    encode position implicitly through their recurrence, so Kimi Linear drops RoPE
+    from its full-attention layers entirely (paper Sec. 3.3, "NoPE").
+  * Written in the ABSORBED form (see the class docstring): with no RoPE in the
+    way, the K/V up-projections fold into the neighboring matrices exactly, so the
+    latent itself serves as both K and V and never gets up-projected at runtime.
+
+Two paths, same math: `__call__` for full-sequence training (causal-masked matrix
+attention) and `step` for streaming decode (append the new latent to a preallocated
+cache, attend over it).
+"""
+
 from typing import NamedTuple
 
 import jax
@@ -50,7 +70,6 @@ class GroupedQueryLatentAttention(nnx.Module):
         num_q_heads: int,
         num_kv_heads: int,
         head_dim: int,
-        seq_length: int,
         rngs: nnx.Rngs,
         compute_dtype: jnp.dtype = F32,
     ):
@@ -107,20 +126,6 @@ class GroupedQueryLatentAttention(nnx.Module):
             rngs=rngs,
         )
 
-        # Lower-triangular causal mask (True = keep), built once at the
-        # construction seq_length and sliced at call time, so it also covers any
-        # shorter sequence. The diagonal is included, guaranteeing at least one
-        # unmasked key per row (so the -inf masking below cannot NaN).
-        #
-        # Wrapped in nnx.Variable so NNX treats it as a proper *state leaf* (data)
-        # rather than a static attribute. It is a plain Variable, not an nnx.Param,
-        # so optimizers that filter on Param leave it untouched -- correct for a
-        # constant. It is still carried in the module state (moved/checkpointed
-        # with the model). Indexing it (below) returns the underlying array.
-        self.causal_mask = nnx.Variable(
-            jnp.tril(jnp.ones((seq_length, seq_length), dtype=bool))
-        )
-
     def __call__(self, x: jax.Array) -> jax.Array:
         # x: (B, T, embed_dim)
         batch_size, seq_length, _ = x.shape
@@ -160,13 +165,14 @@ class GroupedQueryLatentAttention(nnx.Module):
         # softmax max/exp/sum are stable even when the projections ran in bf16.
         scaled_logits = qk_t.astype(F32) / jnp.sqrt(self.head_dim)
 
-        # Apply causal mask: future positions -> -inf so they vanish under softmax.
-        # Indexing the nnx.Variable yields the raw bool array. Safe to use -inf
-        # here because the diagonal is always kept (no fully-masked rows).
+        # Causal mask (True = keep): future positions -> -inf so they vanish under
+        # softmax. Built at trace time from the actual sequence length — under jit
+        # this is a compile-time constant (folded by XLA), so nothing is stored in
+        # the module state or in checkpoints. Safe to use -inf because the diagonal
+        # is always kept (no fully-masked rows -> the softmax cannot NaN).
+        causal_mask = jnp.tril(jnp.ones((seq_length, seq_length), dtype=bool))
         scaled_logits = jnp.where(
-            self.causal_mask[None, None, :seq_length, :seq_length],
-            scaled_logits,
-            -jnp.inf,
+            causal_mask[None, None], scaled_logits, -jnp.inf
         )
 
         # Softmax over the key axis -> per-query attention distribution (fp32), then

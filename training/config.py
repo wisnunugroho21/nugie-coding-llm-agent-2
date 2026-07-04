@@ -85,8 +85,8 @@ class TrainConfig:
     # resume: path to a full checkpoint dir to continue (params + optimizer + step)
     resume: str | None = None
 
-    # numerics
-    dtype: str = "float32"  # T4 has no bf16; float32 is the safe default (see README)
+    # NOTE: numerics (fp32 vs bf16 mixed precision) are a MODEL property, set via
+    # `compute_dtype` in the model YAML — see KimiLinearConfig, not this class.
 
 
 @dataclass
@@ -183,6 +183,6 @@ class Config:
         if train.seq_len > model.max_seq_len:
             raise ValueError(
                 f"seq_len ({train.seq_len}) exceeds model.max_seq_len "
-                f"({model.max_seq_len}); the MLA causal mask is built at max_seq_len."
+                f"({model.max_seq_len}), the model's declared context cap."
             )
         return Config(model=model, train=train)

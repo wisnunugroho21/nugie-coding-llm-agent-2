@@ -73,7 +73,11 @@ class MinHashLSH:
 
     @staticmethod
     def _pick_bands(threshold: float, num_perm: int) -> int:
-        """Largest #bands dividing num_perm whose LSH threshold <= target."""
+        """Smallest #bands dividing num_perm whose LSH threshold drops to <= target.
+
+        The approximation threshold (1/bands)^(1/rows) decreases as bands grows, so
+        scanning bands upward and stopping at the first crossing yields the operating
+        point closest to (and at most) the requested Jaccard threshold."""
         best = 1
         for b in range(1, num_perm + 1):
             if num_perm % b:
@@ -101,6 +105,9 @@ class MinHashLSH:
         if sh.size == 0:
             sh = np.zeros(1, dtype=np.uint64)
         # (a[:,None]*sh + b) mod p, then min over shingles -> [num_perm].
+        # The uint64 multiply wraps (a < 2^61, sh < 2^32), so this is not an exact
+        # affine hash mod p — the same deliberate trade-off datasketch makes; the
+        # wrapped product is still a well-mixed deterministic hash family in practice.
         hashed = (self._a[:, None] * sh[None, :] + self._b[:, None]) % _MERSENNE_PRIME
         return (hashed & _MAX_HASH).min(axis=1).astype(np.uint64)
 

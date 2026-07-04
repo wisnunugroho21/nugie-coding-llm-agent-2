@@ -12,6 +12,7 @@ optimizer steps and the LR schedule is expressed in optimizer steps too.
 
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path
 
@@ -87,6 +88,8 @@ def make_train_step(pad_id: int, bias_lr: float):
         )
         optimizer.update(model, grads)
         # Aux-loss-free load balancing: nudge each layer's router bias (no gradient).
+        # Note: with grad accumulation this runs every MICRO-step (the bias adapts a
+        # little faster than one nudge per optimizer step); direction is unaffected.
         group_sizes = m["group_sizes"]  # [n_layers, E]
         for i, layer in enumerate(model.layers):
             mm = layer.channel_mixer
@@ -98,6 +101,10 @@ def make_train_step(pad_id: int, bias_lr: float):
     return train_step
 
 
+# lru_cache reuses the SAME jitted closure across calls: `run_eval` runs every
+# `eval_every` steps during training, and a fresh nnx.jit wrapper each time would
+# re-trace and recompile the whole model on every eval.
+@functools.lru_cache(maxsize=None)
 def make_eval_step(pad_id: int):
     @nnx.jit
     def eval_step(model: KimiLinear, batch: dict):

@@ -7,7 +7,7 @@ the data pipeline, the tokenizer, the training loop, evaluation, and sampling �
 to run on a single **NVIDIA T4 (16 GB)** for learning, and to scale up to an
 **H200** for a serious from-scratch run.
 
-- **Architecture** — the [Kimi Linear](https://arxiv.org/abs/2510.xxxxx) hybrid recipe:
+- **Architecture** — the [Kimi Linear](https://arxiv.org/abs/2510.26692) hybrid recipe:
   a 3:1 interleave of cheap **linear-attention** layers and **full-attention** layers.
   The linear mixer is **Gated DeltaNet-2** (decoupled *erase* and *write* gates) in
   place of Kimi's KDA; the full-attention layers are **NoPE Multi-head Latent
@@ -156,7 +156,7 @@ training/
   generate.py          sampling + FIM-infill decode
 configs/               model_{t4,h200} + data_{pretrain,anneal} + {pretrain,anneal}.yaml
 scripts/               01..06 thin wrappers for the full run
-tests/                 GDN-2 chunk==recurrent + end-to-end pipeline smoke test
+tests/                 GDN-2 chunk==recurrent, MoE dispatched==dense, pipeline smoke test
 Kimi_Linear_GDN2_Colab.ipynb   guided end-to-end run in Colab (with a QUICK_DEMO mode)
 ```
 

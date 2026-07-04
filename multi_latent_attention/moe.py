@@ -108,32 +108,30 @@ class GroupedGemmMoE(nnx.Module):
 
     # ----------------------------------------------------------------------- #
     def _route(self, x_flat: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
-        """Route tokens to experts, returning top-k indices, gate weights, and
-        sigmoid affinities (for aux-loss-free load balancing). The selection bias is
-        applied only to the SELECTION, not the gate weights, so that the gradient flows 
-        through the true sigmoid affinities. The bias is updated outside the gradient to
-        nudge the selection toward uniform load. The gate weights are taken from the true scores, 
-        not the selection, so that the gradient flows through the sigmoid affinities. 
-        The selection bias is only used to choose the top-k experts."""
+        """Route tokens to experts. Returns (top_idx [T,k], gate [T,k], logits [T,E]).
+
+        DeepSeek-V3-style routing: the aux-loss-free selection bias is applied only
+        to the SELECTION (which experts win top-k), never to the gate weights, and
+        under stop_gradient — the bias is a non-learned nudge updated outside the
+        gradient (see `update_router_bias`). Gate weights come from the TRUE sigmoid
+        affinities of the selected experts, so the router still gets exact gradients.
+        The raw logits are returned so the caller can reuse them for the aux loss
+        without a second router matmul."""
         logits = self.router(x_flat).astype(F32)
         scores = jax.nn.sigmoid(logits)  # affinities [T,E]
 
-        # The selection bias is applied only to the SELECTION, not the gate weights, so
-        # that the gradient flows through the true sigmoid affinities. The bias is
-        # updated outside the gradient to nudge the selection toward uniform load.
+        # Selection: true scores + per-expert bias (bias only shifts WHO wins top-k).
         sel = scores + self.router_bias if self.bias_balancing else scores
         sel = jax.lax.stop_gradient(sel) if self.bias_balancing else sel
         _, top_idx = jax.lax.top_k(sel, self.top_k)  # selection [T,k]
 
-        # Gate weights are taken from the true scores, not the selection, so that
-        # the gradient flows through the sigmoid affinities. The selection bias is
-        # only used to choose the top-k experts, not to scale their weights.
-        gate = jnp.take_along_axis(scores, top_idx, axis=-1)  # gate from true scores
+        # Gate weights from the true (un-biased) scores of the selected experts.
+        gate = jnp.take_along_axis(scores, top_idx, axis=-1)
         if self.norm_topk:
             gate = gate / (gate.sum(-1, keepdims=True) + 1e-9)
         gate = gate * self.routed_scale
 
-        return top_idx, gate, scores
+        return top_idx, gate, logits
 
     def _shared(self, x_flat: jax.Array) -> jax.Array:
         """Shared expert(s) as a single wider SwiGLU (always applied to every token).
@@ -152,7 +150,7 @@ class GroupedGemmMoE(nnx.Module):
         xf = x.reshape(T, d)
         cdtype = self.compute_dtype  # force bf16 GEMMs even though the residual is fp32
 
-        top_idx, gate, scores = self._route(xf)
+        top_idx, gate, router_logits = self._route(xf)
 
         # ---- dispatch: flatten assignments and sort by expert id ----
         flat_e = top_idx.reshape(T * k).astype(jnp.int32)  # expert per assignment
@@ -187,8 +185,11 @@ class GroupedGemmMoE(nnx.Module):
         load = group_sizes.astype(F32) / (T * k)  # fraction per expert
 
         # ---- aux loss ----
-        # Switch/DeepSeek aux loss: E * <f_e, P_e>, P from softmax routing probs.
-        probs = jax.nn.softmax(self.router(xf).astype(F32), axis=-1).mean(0)  # [E]
+        # Switch/DeepSeek-style aux loss: E * <f_e, P_e>, where f_e is the realized
+        # per-expert load fraction (non-differentiable; acts as a constant) and P_e
+        # the mean softmax routing probability (this is where the gradient flows).
+        # Reuses the logits already computed by _route (no second router matmul).
+        probs = jax.nn.softmax(router_logits, axis=-1).mean(0)  # [E]
         aux_loss = self.aux_alpha * self.E * jnp.sum(load * probs)
         aux = {"load": load, "aux_loss": aux_loss, "group_sizes": group_sizes}
         return out, aux

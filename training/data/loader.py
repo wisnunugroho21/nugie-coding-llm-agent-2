@@ -26,16 +26,23 @@ def load_meta(data_dir: str | Path) -> dict:
 
 
 class PackedTokenSource(grain.RandomAccessDataSource):
-    """Random-access view of `bin_path` as non-overlapping (seq_len+1)-token windows."""
+    """Random-access view of `bin_path` as non-overlapping (seq_len+1)-token windows.
+
+    The memmap is opened LAZILY, once per process. Grain pickles the data source
+    into each worker process, and pickling an open np.memmap silently materializes
+    the whole file as an in-memory array — for a multi-GB corpus that would copy
+    the entire dataset into every worker. So we only ship the path + dtype and let
+    each worker open its own memmap on first access.
+    """
 
     def __init__(self, bin_path: str | Path, dtype: str, seq_len: int):
         self._path = str(bin_path)
         self._dtype = np.dtype(dtype)
         self._seq_len = seq_len
-        # memmap opened lazily per-worker (below) so it survives process forks cleanly.
-        self._data = np.memmap(self._path, dtype=self._dtype, mode="r")
-        total = self._data.shape[0]
-        # number of full windows; each needs seq_len+1 tokens (input + shifted label).
+        self._data: np.memmap | None = None  # opened per-process in __getitem__
+        # Window count from the file size alone (no need to open the memmap here);
+        # each window needs seq_len+1 tokens (input + shifted label).
+        total = Path(bin_path).stat().st_size // self._dtype.itemsize
         self._n = max(0, (total - 1) // seq_len)
         if self._n == 0:
             raise ValueError(
@@ -43,10 +50,16 @@ class PackedTokenSource(grain.RandomAccessDataSource):
                 "Prepare more data or lower seq_len."
             )
 
+    def __getstate__(self) -> dict:
+        # Drop the open memmap before pickling (see class docstring).
+        return {**self.__dict__, "_data": None}
+
     def __len__(self) -> int:
         return self._n
 
     def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
+        if self._data is None:
+            self._data = np.memmap(self._path, dtype=self._dtype, mode="r")
         start = idx * self._seq_len
         window = np.asarray(
             self._data[start : start + self._seq_len + 1], dtype=np.int32

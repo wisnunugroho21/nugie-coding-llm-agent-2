@@ -22,13 +22,12 @@ gdn_expanded_erase: false
 mla_num_q_heads: 8
 mla_num_kv_heads: 2
 mla_head_dim: 64
-max_seq_len: 512             # must be >= train seq_len (sizes the MLA causal mask)
+max_seq_len: 512             # must be >= train seq_len (default MLA cache size)
 
 # --- MoE channel mixer (small, to fit the T4) ---
 moe_d_ff: 512
 moe_n_routed: 8
 moe_n_shared: 1
 moe_top_k: 2
-mlp_d_ff: 768
 
 rms_eps: 1.0e-5
